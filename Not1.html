@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Latihan Membaca Not Gitar</title>
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        text-align: center;
+        background: #f5f5f5;
+        margin: 0;
+        padding: 20px;
+    }
+
+    h2 {
+        margin-bottom: 10px;
+    }
+
+    #notArea {
+        background: white;
+        width: 320px;
+        height: 180px;
+        margin: 20px auto;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px #aaa;
+    }
+
+    canvas {
+        width: 100%;
+        height: 100%;
+    }
+
+    #hasil {
+        font-size: 28px;
+        font-weight: bold;
+        margin: 20px;
+        min-height: 35px;
+    }
+
+    #nada {
+        font-size: 18px;
+        color: #555;
+    }
+
+    button {
+        font-size: 18px;
+        padding: 12px 25px;
+        border: none;
+        border-radius: 8px;
+        background: #333;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:active {
+        transform: scale(0.97);
+    }
+</style>
+</head>
+
+<body>
+
+<h2>Latihan Membaca Not</h2>
+
+<div id="notArea">
+    <canvas id="canvas" width="320" height="180"></canvas>
+</div>
+
+<div id="nada">Petik nada yang sesuai</div>
+
+<div id="hasil"></div>
+
+<button onclick="mulai()">Mulai</button>
+
+<script>
+
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const nada = [
+    { nama:"B3", frekuensi:246.94, senar:2, fret:0 },
+    { nama:"C4", frekuensi:261.63, senar:2, fret:1 },
+    { nama:"D4", frekuensi:293.66, senar:2, fret:3 },
+    { nama:"E4", frekuensi:329.63, senar:1, fret:0 },
+    { nama:"F4", frekuensi:349.23, senar:1, fret:1 },
+    { nama:"G4", frekuensi:392.00, senar:1, fret:3 },
+    { nama:"A4", frekuensi:440.00, senar:1, fret:5 }
+];
+
+let target;
+let audioContext;
+let analyser;
+let microphone;
+let buffer;
+
+function pilihNada() {
+
+    target = nada[Math.floor(Math.random() * nada.length)];
+
+    gambarNot(target);
+
+    document.getElementById("hasil").textContent = "";
+    document.getElementById("nada").textContent =
+        "Petik nada yang sesuai";
+}
+
+
+function gambarNot(n) {
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Garis paranada
+    const x1 = 55;
+    const x2 = 285;
+    const jarak = 18;
+
+    for(let i = 0; i < 5; i++) {
+        let y = 45 + i * jarak;
+
+        ctx.beginPath();
+        ctx.moveTo(x1, y);
+        ctx.lineTo(x2, y);
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    // Kunci treble sederhana
+    ctx.font = "70px serif";
+    ctx.fillText("𝄞", 15, 105);
+
+    // Posisi not berdasarkan nada
+    const posisi = {
+        B3: 126,
+        C4: 117,
+        D4: 108,
+        E4: 99,
+        F4: 90,
+        G4: 81,
+        A4: 72
+    };
+
+    let y = posisi[n.nama];
+
+    // Kepala not
+    ctx.beginPath();
+    ctx.ellipse(170, y, 10, 7, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Batang not
+    ctx.beginPath();
+    ctx.moveTo(179, y);
+    ctx.lineTo(179, y - 55);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Tampilkan nomor senar/fret kecil
+    ctx.font = "16px Arial";
+    ctx.fillText(
+        "Senar " + n.senar + "  •  Fret " + n.fret,
+        105,
+        160
+    );
+}
+
+
+async function mulai() {
+
+    try {
+
+        audioContext = new (
+            window.AudioContext ||
+            window.webkitAudioContext
+        )();
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true
+        });
+
+        microphone = audioContext.createMediaStreamSource(stream);
+
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 4096;
+
+        microphone.connect(analyser);
+
+        buffer = new Float32Array(analyser.fftSize);
+
+        pilihNada();
+
+        deteksiNada();
+
+    } catch(error) {
+
+        alert(
+            "Mikrofon tidak bisa digunakan.\n" +
+            "Pastikan izin mikrofon sudah diberikan."
+        );
+
+        console.log(error);
+    }
+}
+
+
+function deteksiNada() {
+
+    analyser.getFloatTimeDomainData(buffer);
+
+    const frekuensi = cariFrekuensi(buffer, audioContext.sampleRate);
+
+    if(frekuensi > 0) {
+
+        cekNada(frekuensi);
+
+    }
+
+    requestAnimationFrame(deteksiNada);
+}
+
+
+function cariFrekuensi(buffer, sampleRate) {
+
+    // RMS untuk mengetahui apakah ada suara
+    let rms = 0;
+
+    for(let i = 0; i < buffer.length; i++) {
+        rms += buffer[i] * buffer[i];
+    }
+
+    rms = Math.sqrt(rms / buffer.length);
+
+    if(rms < 0.015) {
+        return -1;
+    }
+
+    // Autocorrelation
+    let bestOffset = -1;
+    let bestCorrelation = 0;
+
+    for(let offset = 20; offset < 1000; offset++) {
+
+        let correlation = 0;
+
+        for(let i = 0; i < buffer.length - offset; i++) {
+            correlation += buffer[i] * buffer[i + offset];
+        }
+
+        correlation /= buffer.length - offset;
+
+        if(correlation > bestCorrelation) {
+            bestCorrelation = correlation;
+            bestOffset = offset;
+        }
+    }
+
+    if(bestOffset === -1) {
+        return -1;
+    }
+
+    return sampleRate / bestOffset;
+}
+
+
+let waktuTerakhir = 0;
+
+function cekNada(freq) {
+
+    const sekarang = Date.now();
+
+    // Jangan membaca terlalu cepat
+    if(sekarang - waktuTerakhir < 400) {
+        return;
+    }
+
+    // Cari nada yang paling dekat
+    let terdekat = null;
+    let selisihTerkecil = Infinity;
+
+    for(let n of nada) {
+
+        let selisih = Math.abs(freq - n.frekuensi);
+
+        if(selisih < selisihTerkecil) {
+            selisihTerkecil = selisih;
+            terdekat = n;
+        }
+    }
+
+    // Toleransi sekitar 2%
+    if(
+        terdekat &&
+        selisihTerkecil / terdekat.frekuensi < 0.025
+    ) {
+
+        waktuTerakhir = sekarang;
+
+        if(terdekat.nama === target.nama) {
+
+            document.getElementById("hasil").textContent = "BENAR!";
+
+            // Tunggu sebentar lalu soal baru
+            setTimeout(() => {
+                pilihNada();
+            }, 700);
+
+        } else {
+
+            document.getElementById("hasil").textContent =
+                "SALAH — " + terdekat.nama;
+        }
+    }
+}
+
+</script>
+
+</body>
+</html>
